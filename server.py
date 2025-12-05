@@ -14,7 +14,7 @@ from typing import Optional, Dict, Any, List
 
 STORAGE_DIR = "storage"
 METADATA_FILE = os.path.join(STORAGE_DIR, "cloud_files.json")
-REPLICATION_FACTOR = 2  # default replication copies (besides uploader)
+REPLICATION_FACTOR = 2 
 REPLICATION_WORKERS = 2
 HEADER_SIZE = 4
 LOG_LEVEL = logging.INFO
