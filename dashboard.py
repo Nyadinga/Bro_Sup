@@ -1,12 +1,14 @@
 import streamlit as st
 import time
 import os
+import math
 import datetime
 import pandas as pd
 from client import client_cli as client
 
 # Configuration
 GATEWAY = "localhost:50051"
+FREE_TIER_LIMIT = 2 * 1024 * 1024 * 1024  # 2 GB
 
 # CAMEROON REGION COORDINATES (Lat, Lon)
 REGION_COORDS = {
@@ -27,73 +29,86 @@ st.markdown("""
     .reportview-container { background: #f0f8ff }
     h1 { color: #0077b6; }
     .stButton>button { width: 100%; border-radius: 5px; }
-    .metric-card { background-color: white; padding: 15px; border-radius: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+    div[data-testid="stMetricValue"] { font-size: 1.2rem; }
+    .status-critical { color: red; font-weight: bold; }
+    .chunk-box {
+        border: 1px solid #e0e0e0;
+        border-radius: 8px;
+        padding: 10px;
+        background: #ffffff;
+        text-align: center;
+        box-shadow: 2px 2px 5px rgba(0,0,0,0.05);
+    }
 </style>
 """, unsafe_allow_html=True)
 
-# --- SIDEBAR ---
-with st.sidebar:
-    st.image("https://img.icons8.com/color/100/000000/water-tower.png", width=80)
-    st.title("Bluetap Portal")
-    st.caption("National Water Grid")
-    st.markdown("---")
+# --- HELPERS ---
+def format_size(size_bytes):
+    if size_bytes == 0: return "0 B"
+    size_name = ("B", "KB", "MB", "GB", "TB")
+    i = int(math.floor(math.log(size_bytes, 1024)))
+    p = math.pow(1024, i)
+    s = round(size_bytes / p, 2)
+    return "%s %s" % (s, size_name[i])
+
+def render_sidebar():
+    with st.sidebar:
+        try:
+            st.image("cloud.png", width=80)
+        except:
+            st.markdown("<h1 style='font-size: 50px; margin: 0;'>☁️</h1>", unsafe_allow_html=True)
+            
+        st.title("SupBro 😎")
+        
+        if st.session_state.get('token'):
+            st.write(f"User: **{st.session_state.get('login_user')}**")
+            st.success(f"System Status: ● Online")
+            
+            st.subheader(" Storage Quota")
+            try:
+                files = client.list_files(GATEWAY)
+                total_used = sum(f.filesize for f in files) if files else 0
+            except:
+                total_used = 0
+                
+            usage_ratio = min(1.0, total_used / FREE_TIER_LIMIT)
+            st.progress(usage_ratio)
+            st.caption(f"**{format_size(total_used)}** used of **2 GB**")
+
+            st.markdown("---")
+            if st.button("Logout"):
+                st.session_state.clear()
+                st.rerun()
+
+# --- NEW VISUALIZATION: CHUNK MAP ---
+def display_chunk_map(file_obj):
+    st.write(f"###  Distributed Topology: {file_obj.filename}")
     
-    if st.session_state.get('token'):
-        st.write(f"👷 User: **{st.session_state.get('login_user')}**")
-        st.success(f"System Status: ● Online")
-        if st.button("Logout"):
-            st.session_state['token'] = None
-            st.session_state['otp_sent'] = False
-            st.rerun()
-
-# --- HELPER: PARSE METADATA ---
-def parse_reports_for_map(files):
-    map_data = []
+    # Calculate simulated chunks (GFS usually uses 64MB chunks, we'll show up to 4 for visual)
+    num_chunks = min(4, max(1, math.ceil(file_obj.filesize / (1024*1024))))
     
-    for f in files:
-        # Format: [Region][Urgency]_Description_Time.ext
-        # Default to Yaounde if unknown
-        lat, lon = REGION_COORDS["Yaoundé"]
-        urgency = "Normal"
-        
-        # Try to find region in filename
-        for reg_name, coords in REGION_COORDS.items():
-            # Check sanitised name
-            clean_reg = reg_name.replace("é", "e").replace(" ", "")
-            if f"[{clean_reg}]" in f.filename or f"[{reg_name}]" in f.filename:
-                # Add slight random jitter so markers don't stack perfectly
-                lat, lon = coords[0] + (time.time() % 0.01), coords[1] + (time.time() % 0.01)
-        
-        if "[CRITICAL]" in f.filename: urgency = "CRITICAL"
-        elif "[High]" in f.filename: urgency = "High"
-        
-        # Color code: Red for Critical, Blue for Normal
-        color = "#ff0000" if urgency == "CRITICAL" else "#0000ff"
-        size = 200 if urgency == "CRITICAL" else 80
-        
-        map_data.append({
-            "lat": lat,
-            "lon": lon,
-            "title": f.filename,
-            "size": size,
-            "color": color,
-            "urgency": urgency
-        })
-        
-    return pd.DataFrame(map_data)
+    cols = st.columns(num_chunks)
+    for i in range(num_chunks):
+        with cols[i]:
+            st.markdown(f"""
+            <div class="chunk-box">
+                <small>Chunk ID {i}</small><br>
+                <span style='color:blue'>Node A</span> <br>
+                <span style='color:blue'>Node B</span> 
+            </div>
+            """, unsafe_allow_html=True)
 
-# --- MAIN APP LOGIC ---
-
+# --- APP START ---
 if 'token' not in st.session_state: st.session_state['token'] = None
 if 'otp_sent' not in st.session_state: st.session_state['otp_sent'] = False
 
+render_sidebar()
+
 if not st.session_state['token']:
-    # === LOGIN SCREEN ===
+    # [Login Logic remains as you had it]
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
-        st.title("💧 Bluetap Login")
-        st.info("Authorized Personnel Only")
-        
+        st.title("SupBro Login")
         if not st.session_state['otp_sent']:
             with st.form("login"):
                 user = st.text_input("Username")
@@ -105,8 +120,7 @@ if not st.session_state['token']:
                         st.session_state['login_user'] = user
                         st.session_state['login_email'] = email
                         st.rerun()
-                    else:
-                        st.error(msg)
+                    else: st.error(msg)
         else:
             otp = st.text_input("OTP Code", type="password")
             if st.button("Verify"):
@@ -114,103 +128,78 @@ if not st.session_state['token']:
                 if ok:
                     st.session_state['token'] = token
                     st.rerun()
-                else:
-                    st.error("Invalid Code")
-
 else:
-    # === MAIN APPLICATION ===
     client.set_token(st.session_state['token'])
     files = client.list_files(GATEWAY)
     
-    # KPIs
-    k1, k2, k3, k4 = st.columns(4)
-    k1.metric("Active Nodes", "2 (Replicated)", "Stable")
-    k2.metric("Reports Stored", f"{len(files)}")
-    critical_count = sum(1 for f in files if "CRITICAL" in f.filename)
-    k3.metric("Critical Alerts", f"{critical_count}", delta_color="inverse", delta=critical_count)
-    
-    st.divider()
+    # KPI Metrics
+    k1, k2, k3 = st.columns(3)
+    k1.metric("Infrastructure", "RAID-1 Mirror", "Healthy")
+    k2.metric("Files Managed", len(files))
+    k3.metric("Replication Factor", "2x")
 
-    # TABS
-    tab1, tab2, tab3 = st.tabs(["🗺️ Situation Room", "📝 Submit Report", "🗃️ Archives"])
+    tab1, tab2 = st.tabs(["🚀 Upload & Sync", "📁 Data Gallery"])
 
-    # --- MAP TAB (NEW!) ---
     with tab1:
-        st.subheader("Real-Time Infrastructure Map")
-        if not files:
-            st.info("No data available for mapping.")
-        else:
-            map_df = parse_reports_for_map(files)
-            
-            # Interactive Map
-            st.map(map_df, latitude="lat", longitude="lon", size="size", color="color", zoom=6)
-            
-            st.caption("🔴 Red = Critical Faults | 🔵 Blue = Standard Reports")
-
-    # --- UPLOAD TAB ---
-    with tab2:
-        c1, c2 = st.columns(2)
-        with c1:
-            region = st.selectbox("Region", list(REGION_COORDS.keys()))
-            issue_type = st.selectbox("Issue Type", ["Leakage", "Broken Pump", "Contamination", "Routine Check"])
-        with c2:
-            urgency = st.radio("Urgency Level", ["Normal", "High", "CRITICAL"])
-
-        uploaded_file = st.file_uploader("Attach Photo/Document")
-        
-        if uploaded_file and st.button("🚀 Submit Report", type="primary"):
-            timestamp = int(time.time())
-            ext = uploaded_file.name.split('.')[-1]
-            safe_region = region.replace(" ", "").replace("é", "e")
-            safe_issue = issue_type.replace(" ", "")
-            
-            # Construct Smart Filename
-            smart_filename = f"[{safe_region}][{urgency}]_{safe_issue}_{timestamp}.{ext}"
-            
-            temp_path = f"temp_{smart_filename}"
+        uploaded_file = st.file_uploader("Upload Infrastructure Report")
+        if uploaded_file and st.button("Submit to Grid", type="primary"):
+            temp_path = f"temp_{uploaded_file.name}"
             with open(temp_path, "wb") as f: f.write(uploaded_file.getbuffer())
             
-            progress = st.progress(0, text="Initiating distributed upload...")
-            status = st.empty()
+            progress_bar = st.progress(0)
+            status_text = st.empty()
             
             def update_ui(chunk_id, fname, node):
-                status.text(f"Replicating block {chunk_id} to {node}...")
-                progress.progress(min(100, (chunk_id+1)*10))
+                status_text.text(f"Streaming chunk {chunk_id} to {node}...")
+                progress_bar.progress(min(100, (chunk_id + 1) * 20))
 
             ok, msg = client.put_file(GATEWAY, temp_path, progress_callback=update_ui)
-            
             if ok:
-                progress.progress(100)
-                status.text("✅ Data persisted.")
-                st.success(f"Report submitted!")
-                time.sleep(1)
+                st.success("Replication Complete!")
                 os.remove(temp_path)
                 st.rerun()
-            else:
-                st.error(msg)
+            else: st.error(msg)
 
-    # --- LIST TAB ---
-    with tab3:
-        for f in files:
-            with st.container():
-                c1, c2, c3, c4 = st.columns([4, 2, 2, 2])
-                c1.markdown(f"**{f.filename}**")
-                c2.text(f"{f.filesize} B")
-                c3.text(f.created_at)
-                with c4:
-                    # Retrieval Logic
-                    ready_key = f"ready_{f.upload_id}"
-                    local_path = f"downloaded_{f.filename}"
-                    
-                    if st.session_state.get(ready_key) and os.path.exists(local_path):
-                        with open(local_path, "rb") as fh:
-                            st.download_button("💾 Open", fh, file_name=f.filename, key=f"dl_{f.upload_id}")
-                    else:
-                        if st.button("Retrieve", key=f"fetch_{f.upload_id}"):
-                            ok, msg = client.download_file(GATEWAY, f.filename, local_path)
-                            if ok:
-                                st.session_state[ready_key] = True
-                                st.rerun()
-                            else:
-                                st.error(msg)
-            st.divider()
+    with tab2:
+        if not files:
+            st.info("No files found in your storage.")
+        else:
+            # 1. Group files by folder (Assumes f has a folder_name attribute)
+            # If your proto doesn't have folder_name yet, we fallback to 'Root'
+            grouped_files = {}
+            for f in files:
+                # Use getattr to prevent crashing if folder_name isn't in your current proto
+                folder = getattr(f, 'folder_name', 'Default Storage') 
+                if folder not in grouped_files:
+                    grouped_files[folder] = []
+                grouped_files[folder].append(f)
+
+            # 2. Render Folders
+            for folder_name, folder_files in grouped_files.items():
+                st.markdown(f"### 📁 {folder_name}")
+                
+                # Render each file inside this folder
+                for f in folder_files:
+                    with st.expander(f"📄 {f.filename} ({format_size(f.filesize)})"):
+                        display_chunk_map(f) # Show the chunks topology!
+                        
+                        c1, c2 = st.columns([8, 2])
+                        c1.write(f"**Uploaded:** {f.created_at}")
+                        
+                        # Retrieval Logic
+                        ready_key = f"ready_{f.upload_id}"
+                        local_path = f"downloaded_{f.filename}"
+                        
+                        if st.session_state.get(ready_key) and os.path.exists(local_path):
+                            with open(local_path, "rb") as fh:
+                                c2.download_button("💾 Open", fh, file_name=f.filename, key=f"dl_{f.upload_id}")
+                        else:
+                            if c2.button("Retrieve", key=f"fetch_{f.upload_id}"):
+                                with st.spinner("Streaming from nodes..."):
+                                    ok, msg = client.download_file(GATEWAY, f.filename, local_path)
+                                    if ok:
+                                        st.session_state[ready_key] = True
+                                        st.rerun()
+                                    else:
+                                        st.error(msg)
+                st.markdown("---") # Visual separator between folders

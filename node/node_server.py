@@ -20,9 +20,11 @@ def heartbeat_loop(gateway_addr, node_id, port):
     print(f"💓 Heartbeat service started for {node_id}")
     time.sleep(2)
     
+    
     while True:
         try:
-            channel = grpc.insecure_channel(gateway_addr)
+            options = [('grpc.max_receive_message_length', 2 * 1024 * 1024 * 1024)]
+            channel = grpc.insecure_channel(gateway_addr, options=options)
             stub = rpc.GatewayStub(channel)
             node_info = pb.NodeInfo(node_id=node_id, ip="127.0.0.1", port=port, capacity_bytes=10*1024**3, metadata="alive")
             stub.RegisterNode(pb.RegisterNodeRequest(node=node_info))
@@ -92,7 +94,19 @@ def register_with_gateway(gateway_addr, node_id, ip, port, capacity):
 
 def serve(node_id, storage_root, host, port, gateway_addr):
     servicer = NodeServicer(storage_root)
-    server = grpc.server(futures.ThreadPoolExecutor(max_workers=8))
+    options = [
+        ('grpc.max_send_message_length', 2 * 1024 * 1024 * 1024),   # 2 GB
+        ('grpc.max_receive_message_length', 2 * 1024 * 1024 * 1024), # 2 GB
+        ('grpc.keepalive_time_ms', 10000),   # Send keepalive every 10s
+        ('grpc.keepalive_timeout_ms', 5000), # Wait 5s for response
+        ('grpc.http2.max_pings_without_data', 0), # Allow pings without data
+    ]
+    
+    # Update the server line to use these options
+    server = grpc.server(
+        futures.ThreadPoolExecutor(max_workers=8),
+        options=options
+    )
     rpc.add_NodeServiceServicer_to_server(servicer, server)
     server.add_insecure_port(f"{host}:{port}")
     server.start()

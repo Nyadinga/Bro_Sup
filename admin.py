@@ -18,11 +18,18 @@ st.set_page_config(page_title="Bluetap Admin Control", page_icon="🛡️", layo
 # --- CUSTOM CSS ---
 st.markdown("""
 <style>
-    .metric-card { background-color: #ffffff; border: 1px solid #e0e0e0; border-radius: 8px; padding: 15px; }
-    h1, h2, h3 { color: #2c3e50; }
-    .status-online { color: #27ae60; font-weight: bold; }
-    .status-offline { color: #c0392b; font-weight: bold; }
-    div[data-testid="stDataFrame"] { border: 1px solid #ddd; border-radius: 5px; }
+    /* Dark Background & Neon Accents */
+    .stApp { background-color: #0e1117; color: #00ff41; }
+    .metric-card { 
+        background-color: #161b22; 
+        border: 1px solid #00ff41; 
+        border-radius: 4px; 
+        padding: 20px;
+        box-shadow: 0 0 10px #00ff4133;
+    }
+    h1, h2, h3 { color: #00ff41 !important; font-family: 'Courier New', monospace; }
+    .status-online { color: #00ff41; text-shadow: 0 0 5px #00ff41; }
+    .status-offline { color: #ff3131; text-shadow: 0 0 5px #ff3131; }
 </style>
 """, unsafe_allow_html=True)
 
